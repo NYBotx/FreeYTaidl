@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory
-from app.api.download import fetch_formats, download_video, manual_merge
+from app.api.download import fetch_formats, download_video, manual_merge  # Correct import
 
 app = Flask(__name__)
 
@@ -37,7 +37,7 @@ def download():
 
     if download_data['status'] == "success":
         return jsonify(download_data)
-    
+
     # If video and audio need to be merged, attempt that
     return jsonify(manual_merge(url, quality))
 
@@ -47,4 +47,5 @@ def download_file(filename):
     return send_from_directory('downloads', filename)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0', port=8080)
+    
