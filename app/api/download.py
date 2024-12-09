@@ -1,134 +1,169 @@
-from yt_dlp import YoutubeDL
+from flask import Blueprint, request, jsonify, send_from_directory
+import yt_dlp
 import os
-from flask import Flask, jsonify, request, send_file
-import subprocess
 
-app = Flask(__name__)
+# Define the Blueprint
+app = Blueprint('api', __name__)
 
-DOWNLOAD_FOLDER = "/tmp"
+# Ensure the downloads directory exists
+DOWNLOAD_DIR = "downloads"
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-def combine_video_audio(video_path, audio_path, output_path):
-    """Combine video and audio using FFmpeg."""
-    command = [
-        "ffmpeg", "-i", video_path, "-i", audio_path,
-        "-c:v", "copy", "-c:a", "aac", "-strict", "experimental", output_path
-    ]
-    subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-@app.route('/api/get_formats', methods=['POST'])
+@app.route('/get_formats', methods=['POST'])
 def get_formats():
-    """Fetch all available formats for a given video."""
+    """
+    Fetch video and audio formats for the provided YouTube URL.
+    """
     try:
-        url = request.json.get('url')
-        if not url:
-            return jsonify({"status": "error", "message": "No URL provided."}), 400
+        data = request.json
+        url = data.get('url')
 
-        with YoutubeDL() as ydl:
+        if not url:
+            return jsonify({"status": "error", "message": "No URL provided"}), 400
+
+        ydl_opts = {"quiet": True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             formats = info.get('formats', [])
-            is_live = info.get('is_live', False)
 
-            video_formats = [
-                {
-                    "format_id": fmt['format_id'],
-                    "format_note": fmt['format_note'],
-                    "ext": fmt['ext'],
-                    "acodec": fmt['acodec']
-                }
-                for fmt in formats if fmt.get('vcodec') != 'none'
-            ]
-            audio_formats = [
-                {
-                    "format_id": fmt['format_id'],
-                    "format_note": fmt['format_note'],
-                    "ext": fmt['ext']
-                }
-                for fmt in formats if fmt.get('acodec') != 'none' and fmt.get('vcodec') == 'none'
-            ]
-
-            return jsonify({
-                "status": "success",
-                "video_formats": video_formats,
-                "audio_formats": audio_formats,
-                "is_live": is_live
-            })
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
-
-@app.route('/api/download', methods=['POST'])
-def download_video():
-    """Download video, audio, or combined video+audio."""
-    try:
-        url = request.json.get('url')
-        quality = request.json.get('quality')  # Specific format ID
-        download_type = request.json.get('type')  # video, audio, video+audio
-
-        if not url:
-            return jsonify({"status": "error", "message": "No URL provided."}), 400
-
-        video_path = os.path.join(DOWNLOAD_FOLDER, "video.mp4")
-        audio_path = os.path.join(DOWNLOAD_FOLDER, "audio.mp4")
-        output_path = os.path.join(DOWNLOAD_FOLDER, "final_output.mp4")
-
-        # Download based on the selected type
-        if download_type == 'video':
-            ydl_opts = {
-                'format': quality or 'bestvideo',
-                'outtmpl': video_path
+        # Categorize video and audio formats
+        video_formats = [
+            {
+                "format_id": fmt["format_id"],
+                "resolution": fmt.get("resolution", "Unknown"),
+                "ext": fmt["ext"],
+                "has_audio": fmt.get("acodec") != "none"
             }
-        elif download_type == 'audio':
-            ydl_opts = {
-                'format': quality or 'bestaudio',
-                'outtmpl': audio_path
+            for fmt in formats if fmt.get("vcodec") != "none"
+        ]
+        audio_formats = [
+            {
+                "format_id": fmt["format_id"],
+                "ext": fmt["ext"]
             }
-        else:  # video+audio
-            ydl_opts = {
-                'format': quality or 'bestvideo',
-                'outtmpl': video_path
-            }
+            for fmt in formats if fmt.get("acodec") != "none"
+        ]
 
-            with YoutubeDL(ydl_opts) as ydl:
-                info_dict = ydl.extract_info(url, download=False)
-                has_audio = any(
-                    fmt['acodec'] != 'none' for fmt in info_dict.get('formats', [])
-                )
-                ydl.download([url])
-
-            if not has_audio:
-                ydl_opts_audio = {
-                    'format': 'bestaudio',
-                    'outtmpl': audio_path
-                }
-                with YoutubeDL(ydl_opts_audio) as ydl:
-                    ydl.download([url])
-
-                combine_video_audio(video_path, audio_path, output_path)
-                return jsonify({
-                    "status": "success",
-                    "message": "Video+Audio merged successfully!",
-                    "download_link": f"/api/download_file?file_path={output_path}"
-                })
-
-        with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-
-        download_file = video_path if download_type == 'video' else audio_path
         return jsonify({
             "status": "success",
-            "message": "Download completed!",
-            "download_link": f"/api/download_file?file_path={download_file}"
+            "video_formats": video_formats,
+            "audio_formats": audio_formats
         })
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/api/download_file', methods=['GET'])
-def download_file():
-    """Serve the final output file."""
-    file_path = request.args.get('file_path')
-    if not file_path or not os.path.exists(file_path):
-        return jsonify({"status": "error", "message": "File not found."}), 404
 
-    return send_file(file_path, as_attachment=True)
+@app.route('/download', methods=['POST'])
+def download():
+    """
+    Download the requested video or audio format.
+    """
+    try:
+        data = request.json
+        url = data.get('url')
+        format_id = data.get('quality')
 
-if __name__ == '__main__':
-    app.run(debug=True)
+        if not url or not format_id:
+            return jsonify({"status": "error", "message": "Missing required parameters"}), 400
+
+        # Set up download options
+        ydl_opts = {
+            "format": format_id,
+            "outtmpl": f"{DOWNLOAD_DIR}/%(title)s.%(ext)s",
+            "quiet": True
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url)
+            file_path = ydl.prepare_filename(info)
+
+        # Return the download link
+        filename = os.path.basename(file_path)
+        return jsonify({"status": "success", "download_link": f"/downloads/{filename}"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/check_high_quality', methods=['POST'])
+def check_high_quality():
+    """
+    Check if a high-quality video without audio is available and suggest a manual combination.
+    """
+    try:
+        data = request.json
+        url = data.get('url')
+
+        if not url:
+            return jsonify({"status": "error", "message": "No URL provided"}), 400
+
+        ydl_opts = {"quiet": True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            formats = info.get('formats', [])
+
+        high_quality_video = next(
+            (fmt for fmt in formats if fmt.get("vcodec") != "none" and fmt.get("acodec") == "none"), None
+        )
+        audio_format = next(
+            (fmt for fmt in formats if fmt.get("acodec") != "none"), None
+        )
+
+        if high_quality_video and audio_format:
+            return jsonify({
+                "status": "success",
+                "high_quality_video": {
+                    "format_id": high_quality_video["format_id"],
+                    "resolution": high_quality_video.get("resolution", "Unknown"),
+                    "ext": high_quality_video["ext"]
+                },
+                "audio_format": {
+                    "format_id": audio_format["format_id"],
+                    "ext": audio_format["ext"]
+                }
+            })
+        else:
+            return jsonify({"status": "error", "message": "No high-quality video or audio found"}), 404
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/download_live', methods=['POST'])
+def download_live():
+    """
+    Download a live stream video.
+    """
+    try:
+        data = request.json
+        url = data.get('url')
+
+        if not url:
+            return jsonify({"status": "error", "message": "No URL provided"}), 400
+
+        # Check if the URL points to a live stream
+        ydl_opts = {
+            "quiet": True,
+            "live_from_start": True,  # Start downloading as soon as possible
+            "outtmpl": f"{DOWNLOAD_DIR}/%(title)s.%(ext)s",
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+            # Check if it's a live stream
+            if info.get("is_live"):
+                ydl_opts["format"] = "best"  # Download the best quality
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl_live:
+                    info_live = ydl_live.extract_info(url)
+                    file_path = ydl_live.prepare_filename(info_live)
+                    filename = os.path.basename(file_path)
+                    return jsonify({
+                        "status": "success",
+                        "message": "Live stream is being downloaded",
+                        "download_link": f"/downloads/{filename}"
+                    })
+            else:
+                return jsonify({"status": "error", "message": "This is not a live stream"}), 400
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+        
