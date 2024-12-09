@@ -1,32 +1,24 @@
-from flask import Blueprint, request, jsonify, send_from_directory
 import yt_dlp
 import os
+import subprocess
+from flask import jsonify
 
-# Define the Blueprint
-app = Blueprint('api', __name__)
-
-# Ensure the downloads directory exists
 DOWNLOAD_DIR = "downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-@app.route('/get_formats', methods=['POST'])
-def get_formats():
+if not os.path.exists(DOWNLOAD_DIR):
+    os.makedirs(DOWNLOAD_DIR)
+
+def fetch_formats(url):
     """
-    Fetch video and audio formats for the provided YouTube URL.
+    Fetch available formats for a YouTube video.
     """
     try:
-        data = request.json
-        url = data.get('url')
-
-        if not url:
-            return jsonify({"status": "error", "message": "No URL provided"}), 400
-
         ydl_opts = {"quiet": True}
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             formats = info.get('formats', [])
 
-        # Categorize video and audio formats
         video_formats = [
             {
                 "format_id": fmt["format_id"],
@@ -44,126 +36,61 @@ def get_formats():
             for fmt in formats if fmt.get("acodec") != "none"
         ]
 
-        return jsonify({
-            "status": "success",
-            "video_formats": video_formats,
-            "audio_formats": audio_formats
-        })
+        return {"status": "success", "video_formats": video_formats, "audio_formats": audio_formats}
+    
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return {"status": "error", "message": str(e)}
 
-
-@app.route('/download', methods=['POST'])
-def download():
+def download_video(url, format_id):
     """
     Download the requested video or audio format.
     """
     try:
-        data = request.json
-        url = data.get('url')
-        format_id = data.get('quality')
-
-        if not url or not format_id:
-            return jsonify({"status": "error", "message": "Missing required parameters"}), 400
-
-        # Set up download options
+        file_path = os.path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s')
         ydl_opts = {
             "format": format_id,
-            "outtmpl": f"{DOWNLOAD_DIR}/%(title)s.%(ext)s",
+            "outtmpl": file_path,
             "quiet": True
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url)
-            file_path = ydl.prepare_filename(info)
+            downloaded_file = ydl.prepare_filename(info)
 
-        # Return the download link
-        filename = os.path.basename(file_path)
-        return jsonify({"status": "success", "download_link": f"/downloads/{filename}"})
+        filename = os.path.basename(downloaded_file)
+        return {"status": "success", "download_link": f"/downloads/{filename}"}
+
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return {"status": "error", "message": str(e)}
 
-
-@app.route('/check_high_quality', methods=['POST'])
-def check_high_quality():
+def manual_merge(video_url, audio_url):
     """
-    Check if a high-quality video without audio is available and suggest a manual combination.
+    Handle manual video and audio merging.
     """
     try:
-        data = request.json
-        url = data.get('url')
+        video_file_path = os.path.join(DOWNLOAD_DIR, 'video.mp4')
+        audio_file_path = os.path.join(DOWNLOAD_DIR, 'audio.mp4')
 
-        if not url:
-            return jsonify({"status": "error", "message": "No URL provided"}), 400
+        # Download video and audio separately
+        with yt_dlp.YoutubeDL({"outtmpl": video_file_path}) as ydl:
+            ydl.download([video_url])
 
-        ydl_opts = {"quiet": True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            formats = info.get('formats', [])
+        with yt_dlp.YoutubeDL({"outtmpl": audio_file_path}) as ydl:
+            ydl.download([audio_url])
 
-        high_quality_video = next(
-            (fmt for fmt in formats if fmt.get("vcodec") != "none" and fmt.get("acodec") == "none"), None
-        )
-        audio_format = next(
-            (fmt for fmt in formats if fmt.get("acodec") != "none"), None
-        )
+        # Merge video and audio
+        merged_file = os.path.join(DOWNLOAD_DIR, 'merged_video.mp4')
+        command = [
+            "ffmpeg", "-i", video_file_path, "-i", audio_file_path, "-c:v", "copy", "-c:a", "aac", "-strict", "experimental", merged_file
+        ]
+        subprocess.run(command)
 
-        if high_quality_video and audio_format:
-            return jsonify({
-                "status": "success",
-                "high_quality_video": {
-                    "format_id": high_quality_video["format_id"],
-                    "resolution": high_quality_video.get("resolution", "Unknown"),
-                    "ext": high_quality_video["ext"]
-                },
-                "audio_format": {
-                    "format_id": audio_format["format_id"],
-                    "ext": audio_format["ext"]
-                }
-            })
-        else:
-            return jsonify({"status": "error", "message": "No high-quality video or audio found"}), 404
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        # Remove individual video and audio files after merging
+        os.remove(video_file_path)
+        os.remove(audio_file_path)
 
-
-@app.route('/download_live', methods=['POST'])
-def download_live():
-    """
-    Download a live stream video.
-    """
-    try:
-        data = request.json
-        url = data.get('url')
-
-        if not url:
-            return jsonify({"status": "error", "message": "No URL provided"}), 400
-
-        # Check if the URL points to a live stream
-        ydl_opts = {
-            "quiet": True,
-            "live_from_start": True,  # Start downloading as soon as possible
-            "outtmpl": f"{DOWNLOAD_DIR}/%(title)s.%(ext)s",
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-
-            # Check if it's a live stream
-            if info.get("is_live"):
-                ydl_opts["format"] = "best"  # Download the best quality
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl_live:
-                    info_live = ydl_live.extract_info(url)
-                    file_path = ydl_live.prepare_filename(info_live)
-                    filename = os.path.basename(file_path)
-                    return jsonify({
-                        "status": "success",
-                        "message": "Live stream is being downloaded",
-                        "download_link": f"/downloads/{filename}"
-                    })
-            else:
-                return jsonify({"status": "error", "message": "This is not a live stream"}), 400
+        return {"status": "success", "download_link": f"/downloads/merged_video.mp4"}
 
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return {"status": "error", "message": str(e)}
         
