@@ -1,22 +1,71 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Downloader 💖</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Video Downloader</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <h1>YouTube Downloader 💖</h1>
-        <input type="text" id="url-input" placeholder="Paste YouTube URL here">
-        <button id="fetch-btn" class="btn">Fetch Formats 🚀</button>
-
-        <div id="formats-container"></div>
-        <button id="download-btn" class="btn" disabled>Download 📥</button>
+  <div class="container">
+    <h1>YouTube Video Downloader <span>🎥</span></h1>
+    <div class="input-container">
+      <input type="text" id="url" placeholder="Enter YouTube URL" />
+      <button onclick="fetchFormats()">Fetch Formats</button>
     </div>
+    
+    <div id="formats" class="formats-container"></div>
 
-    <script src="/static/script.js"></script>
+    <div id="downloadBtn" class="download-container" style="display:none;">
+      <select id="quality">
+        <option value="">Select Quality</option>
+      </select>
+      <button onclick="download()">Download</button>
+    </div>
+  </div>
+
+  <script>
+    async function fetchFormats() {
+      const url = document.getElementById('url').value;
+      const response = await fetch('/get_formats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await response.json();
+
+      if (data.status === 'success') {
+        const select = document.getElementById('quality');
+        select.innerHTML = '<option value="">Select Quality</option>';
+        data.formats.forEach(format => {
+          const option = document.createElement('option');
+          option.value = format.format_id;
+          option.textContent = `${format.resolution} (${format.ext})`;
+          select.appendChild(option);
+        });
+        document.getElementById('downloadBtn').style.display = 'block';
+      } else {
+        alert('Failed to fetch formats');
+      }
+    }
+
+    async function download() {
+      const url = document.getElementById('url').value;
+      const quality = document.getElementById('quality').value;
+      const response = await fetch('/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, quality }),
+      });
+      const data = await response.json();
+
+      if (data.status === 'success') {
+        alert('Download started: ' + data.file);
+      } else {
+        alert('Download failed: ' + data.message);
+      }
+    }
+  </script>
 </body>
 </html>
