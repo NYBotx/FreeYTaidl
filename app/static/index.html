@@ -1,71 +1,162 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YouTube Video Downloader</title>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Downloader 💖</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(to bottom right, #6a11cb, #2575fc);
+            color: #fff;
+            text-align: center;
+            padding: 20px;
+        }
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            animation: glow 1.5s infinite;
+        }
+        @keyframes glow {
+            0% { text-shadow: 0 0 10px #fff, 0 0 20px #fff, 0 0 30px #ff0080, 0 0 40px #ff0080; }
+            100% { text-shadow: 0 0 20px #fff, 0 0 30px #ff0080, 0 0 40px #ff0080, 0 0 50px #ff0080; }
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            font-size: 1.2rem;
+            border: none;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            outline: none;
+        }
+        button {
+            background-color: #ff0080;
+            border: none;
+            color: #fff;
+            padding: 10px 20px;
+            font-size: 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        button:hover {
+            background-color: #ff4d94;
+        }
+        .options {
+            margin: 20px 0;
+        }
+        select {
+            padding: 10px;
+            font-size: 1rem;
+            border: none;
+            border-radius: 5px;
+            outline: none;
+            margin-right: 10px;
+        }
+        .loading {
+            display: none;
+            margin: 20px 0;
+        }
+        .download-link {
+            display: none;
+            margin-top: 20px;
+            color: #fff;
+            text-decoration: underline;
+        }
+    </style>
 </head>
 <body>
-  <div class="container">
-    <h1>YouTube Video Downloader <span>🎥</span></h1>
-    <div class="input-container">
-      <input type="text" id="url" placeholder="Enter YouTube URL" />
-      <button onclick="fetchFormats()">Fetch Formats</button>
+    <h1>YouTube Downloader 💖</h1>
+    <div class="container">
+        <input type="text" id="video-url" placeholder="Paste YouTube URL here 📋">
+        <button id="fetch-formats">Fetch Formats 🚀</button>
+        <div class="options">
+            <label for="quality">Select Quality: </label>
+            <select id="quality">
+                <option value="">-- Select an Option --</option>
+            </select>
+        </div>
+        <button id="download" style="display: none;">Download 🎉</button>
+        <div class="loading">Loading... Please wait 🌀</div>
+        <a href="#" id="download-link" class="download-link" target="_blank">Download File Here 🔗</a>
     </div>
-    
-    <div id="formats" class="formats-container"></div>
+    <script>
+        const fetchFormatsBtn = document.getElementById("fetch-formats");
+        const downloadBtn = document.getElementById("download");
+        const videoUrlInput = document.getElementById("video-url");
+        const qualitySelect = document.getElementById("quality");
+        const loadingDiv = document.querySelector(".loading");
+        const downloadLink = document.getElementById("download-link");
 
-    <div id="downloadBtn" class="download-container" style="display:none;">
-      <select id="quality">
-        <option value="">Select Quality</option>
-      </select>
-      <button onclick="download()">Download</button>
-    </div>
-  </div>
-
-  <script>
-    async function fetchFormats() {
-      const url = document.getElementById('url').value;
-      const response = await fetch('/get_formats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      });
-      const data = await response.json();
-
-      if (data.status === 'success') {
-        const select = document.getElementById('quality');
-        select.innerHTML = '<option value="">Select Quality</option>';
-        data.formats.forEach(format => {
-          const option = document.createElement('option');
-          option.value = format.format_id;
-          option.textContent = `${format.resolution} (${format.ext})`;
-          select.appendChild(option);
+        fetchFormatsBtn.addEventListener("click", async () => {
+            const videoUrl = videoUrlInput.value.trim();
+            if (!videoUrl) {
+                alert("Please enter a valid URL! 😅");
+                return;
+            }
+            loadingDiv.style.display = "block";
+            qualitySelect.innerHTML = '<option value="">-- Loading Formats... --</option>';
+            try {
+                const response = await fetch("/api/get_formats", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ url: videoUrl })
+                });
+                const data = await response.json();
+                loadingDiv.style.display = "none";
+                if (data.status === "success") {
+                    qualitySelect.innerHTML = '<option value="">-- Select an Option --</option>';
+                    data.video_formats.forEach(format => {
+                        qualitySelect.innerHTML += `<option value="${format.format_id}">${format.resolution} (${format.ext})</option>`;
+                    });
+                    downloadBtn.style.display = "inline-block";
+                } else {
+                    alert("Error fetching formats: " + data.message);
+                }
+            } catch (error) {
+                loadingDiv.style.display = "none";
+                alert("Something went wrong! 😢");
+            }
         });
-        document.getElementById('downloadBtn').style.display = 'block';
-      } else {
-        alert('Failed to fetch formats');
-      }
-    }
 
-    async function download() {
-      const url = document.getElementById('url').value;
-      const quality = document.getElementById('quality').value;
-      const response = await fetch('/download', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, quality }),
-      });
-      const data = await response.json();
-
-      if (data.status === 'success') {
-        alert('Download started: ' + data.file);
-      } else {
-        alert('Download failed: ' + data.message);
-      }
-    }
-  </script>
+        downloadBtn.addEventListener("click", async () => {
+            const videoUrl = videoUrlInput.value.trim();
+            const selectedQuality = qualitySelect.value;
+            if (!videoUrl || !selectedQuality) {
+                alert("Please select all options! 😅");
+                return;
+            }
+            loadingDiv.style.display = "block";
+            downloadLink.style.display = "none";
+            try {
+                const response = await fetch("/api/download", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ url: videoUrl, quality: selectedQuality })
+                });
+                const data = await response.json();
+                loadingDiv.style.display = "none";
+                if (data.status === "success") {
+                    downloadLink.href = data.download_link;
+                    downloadLink.style.display = "block";
+                } else {
+                    alert("Error downloading: " + data.message);
+                }
+            } catch (error) {
+                loadingDiv.style.display = "none";
+                alert("Something went wrong! 😢");
+            }
+        });
+    </script>
 </body>
 </html>
