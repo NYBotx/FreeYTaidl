@@ -1,51 +1,15 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory
-from app.api.download import fetch_formats, download_video, manual_merge  # Correct import
+from flask import Flask
+from api.download import app as api_app  # Import the blueprint from api.download
 
 app = Flask(__name__)
 
-# Route to render the main HTML page
+# Register the blueprint for the API routes
+app.register_blueprint(api_app, url_prefix='/api')
+
+# Root route for serving the main page
 @app.route('/')
 def index():
-    return render_template('index.html')
-
-# API endpoint to fetch available video and audio formats
-@app.route('/get_formats', methods=['POST'])
-def get_formats():
-    data = request.get_json()
-    url = data.get('url')
-
-    if not url:
-        return jsonify({"status": "error", "message": "No URL provided"})
-
-    # Fetch formats using the download.py methods
-    formats_data = fetch_formats(url)
-
-    return jsonify(formats_data)
-
-# API endpoint to download video/audio or manually merge
-@app.route('/download', methods=['POST'])
-def download():
-    data = request.get_json()
-    url = data.get('url')
-    quality = data.get('quality')
-
-    if not url or not quality:
-        return jsonify({"status": "error", "message": "Invalid parameters"})
-
-    # Try to download the selected format
-    download_data = download_video(url, quality)
-
-    if download_data['status'] == "success":
-        return jsonify(download_data)
-    
-    # If video and audio need to be merged, attempt that
-    return jsonify(manual_merge(url, quality))
-
-# Serve the downloaded files
-@app.route('/downloads/<filename>')
-def download_file(filename):
-    return send_from_directory('downloads', filename)
+    return "Welcome to the YouTube Downloader API! Use /api for API calls."
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8080)
-    
+    app.run(debug=True, host='0.0.0.0', port=8080)  # Runs on port 8080
